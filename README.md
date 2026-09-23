@@ -13,9 +13,11 @@ Call `football_score` with no arguments for NFL and college FBS scoreboards for 
 
 Games include teams, scores, status, period, clock, kickoff time, venue, and broadcasts when available. Upcoming scores are null, not misleading zeroes. College coverage is whatever the provider returns for the selected group; an empty scoreboard is not an error.
 
+Call `football_ap_poll` for the latest weekly AP Top 25 college football rankings. Each team includes rank, record, points, previous rank, and movement. The poll date and week are returned so an offseason or delayed poll is not mistaken for current-week results.
+
 ## Data source
 
-Read-only HTTPS requests to ESPN's public scoreboard endpoints at site.api.espn.com. No account, payment, or API key is required. These unofficial endpoints have no guaranteed availability or latency. Responses are cached for 60 seconds; errors are reported per league and never replaced by fabricated scores. Old soccer configuration is accepted for upgrade compatibility but ignored. No stored soccer token is used or transmitted.
+Read-only HTTPS requests to ESPN's public scoreboard and college rankings endpoints at site.api.espn.com. No account, payment, or API key is required. These unofficial endpoints have no guaranteed availability or latency. Scoreboard responses are cached for 60 seconds; errors are reported per league and never replaced by fabricated scores or rankings. Old soccer configuration is accepted for upgrade compatibility but ignored. No stored soccer token is used or transmitted.
 
 ## Dashboard
 
@@ -28,6 +30,8 @@ node refresh-dashboard.mjs --session-key agent:sparx:main --dry-run
 ```
 
 Then run it once without `--dry-run` and inspect both tabs. To keep it current, schedule the same command every two minutes with `openclaw cron add --every 2m --command-argv '["/absolute/path/to/node","/absolute/path/to/refresh-dashboard.mjs","--session-key","agent:sparx:main"]' --no-deliver --name 'US football dashboard refresh'`. Replace the paths and session key for your installation. The gateway must have permission to update that session's board. ESPN scores may lag the game. Stop or remove the automation to return to manual snapshots. Keep the source checkout at the scheduled path: `openclaw plugins pack` includes the plugin runtime but not this companion command; `npm pack` includes both.
+
+The College Football tab can also show a weekly AP Top 25 table. Run `node refresh-dashboard.mjs --session-key agent:sparx:main --ap-poll --dry-run`, then repeat without `--dry-run`. Schedule that command hourly with a separate `openclaw cron add --every 1h --command-argv '["/absolute/path/to/node","/absolute/path/to/refresh-dashboard.mjs","--session-key","agent:sparx:main","--ap-poll"]' --no-deliver --name 'College football AP poll refresh'`. The two-minute score job preserves this card beneath the college summary. If the rankings feed fails or is incomplete, the previous standings remain displayed and the job reports an error.
 
 ## Install and verify
 

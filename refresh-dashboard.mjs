@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
-import {getScores} from "./index.js";
+import {getApPoll, getScores} from "./index.js";
 
 const execFileAsync = promisify(execFile);
 const boards = {
@@ -8,6 +8,7 @@ const boards = {
   NCAAF: {tabId: "us-football-college", prefix: "us-football-ncaaf-", title: "College Football (FBS)"},
 };
 const maxCards = 8;
+const apWidgetName = "college-ap-top-25";
 
 function gameLabel(game) {
   return game.live ? "🔴 LIVE" : game.completed ? "✓ FINAL" : game.state === "pre" ? "UPCOMING" : game.status;
@@ -68,28 +69,32 @@ export function planRefresh(board, scores) {
         ...(previousMetrics ? [previousMetrics] : []),
       ]};
       puts.push({name: summaryName, tabId: target.tabId, props, position: 0});
+      moves.push({kind: "widget_move", name: summaryName, tabId: target.tabId, position: 0});
       continue;
     }
     const games = [...league.games].sort((a, b) =>
       ({in: 0, pre: 1, post: 2}[a.state] ?? 3) - ({in: 0, pre: 1, post: 2}[b.state] ?? 3)
       || String(a.date).localeCompare(String(b.date)));
+    const pollAnchor = code === "NCAAF" ? widgets.find((widget) => widget.tabId === target.tabId && widget.name === apWidgetName) : null;
     const desired = [
       {name: summaryName, tabId: target.tabId, props: summaryProps(target, games, league.fetchedAt), position: 0},
-      ...games.slice(0, maxCards).map((game, index) => ({name: `${target.prefix}${game.id}`, tabId: target.tabId, props: gameProps(game), position: index + 1})),
-      ...(games.length > maxCards ? [{name: `${target.prefix}more-${maxCards}`, tabId: target.tabId, props: moreProps(games.slice(maxCards)), position: maxCards + 1}] : []),
+      ...(pollAnchor ? [{name: apWidgetName, tabId: target.tabId, anchor: true}] : []),
+      ...games.slice(0, maxCards).map((game, index) => ({name: `${target.prefix}${game.id}`, tabId: target.tabId, props: gameProps(game), position: index + 1 + Number(Boolean(pollAnchor))})),
+      ...(games.length > maxCards ? [{name: `${target.prefix}more-${maxCards}`, tabId: target.tabId, props: moreProps(games.slice(maxCards)), position: maxCards + 1 + Number(Boolean(pollAnchor))}] : []),
     ];
     for (const widget of desired) {
+      if (widget.anchor) continue;
       const previous = existing.get(widget.name);
       if (!previous || JSON.stringify(previous.props) !== JSON.stringify(widget.props)) puts.push(widget);
     }
     const names = new Set(desired.map((widget) => widget.name));
     for (const name of existing.keys()) if (!names.has(name)) removes.push({kind: "widget_remove", name});
-    const currentOrder = [...existing.values()]
+    const currentOrder = [...existing.values(), ...(pollAnchor ? [pollAnchor] : [])]
       .filter((widget) => names.has(widget.name))
       .sort((a, b) => a.position - b.position)
       .map((widget) => widget.name);
     const desiredOrder = desired.map((widget) => widget.name);
-    const changedGameCards = desired.some((widget) => widget.name !== summaryName && puts.some((put) => put.name === widget.name));
+    const changedGameCards = desired.some((widget) => !widget.anchor && widget.name !== summaryName && puts.some((put) => put.name === widget.name));
     if (JSON.stringify(currentOrder) !== JSON.stringify(desiredOrder) || changedGameCards || removes.some((op) => op.name.startsWith(target.prefix))) {
       for (const widget of [...desired].reverse()) moves.push({kind: "widget_move", name: widget.name, tabId: widget.tabId, position: 0});
     } else if (puts.some((widget) => widget.name === summaryName)) {
@@ -102,6 +107,33 @@ export function planRefresh(board, scores) {
 async function gateway(method, params) {
   const {stdout} = await execFileAsync(process.env.OPENCLAW_BIN || "openclaw", ["gateway", "call", method, "--params", JSON.stringify(params), "--json", "--timeout", "15000"], {timeout: 20000, maxBuffer: 4 * 1024 * 1024});
   return JSON.parse(stdout);
+}
+
+export function apPollProps(poll) {
+  const movement = (rank) => rank.change === null ? "New" : rank.change > 0 ? `↑${rank.change}` : rank.change < 0 ? `↓${-rank.change}` : "—";
+  return {blocks: [
+    {type: "text", title: `AP Top 25${poll.season ? ` • ${poll.season}` : ""}${poll.week ? ` Week ${poll.week}` : ""}`,
+      text: `Poll date ${poll.pollDate} • Checked ${poll.fetchedAt} • ESPN (unofficial). Rankings change weekly.`},
+    {type: "table", columns: ["#", "Team", "Record", "Points", "Change"], rows: poll.rankings.map((rank) => [
+      String(rank.rank), rank.team, rank.record, String(rank.points ?? "—"), movement(rank),
+    ])},
+  ]};
+}
+
+export async function refreshApPoll(sessionKey, dryRun = false) {
+  const [board, poll] = await Promise.all([gateway("board.get", {sessionKey}), getApPoll()]);
+  const tabId = boards.NCAAF.tabId;
+  if (!board.tabs?.some((tab) => tab.tabId === tabId)) throw new Error(`Dashboard tab ${tabId} is missing`);
+  const props = apPollProps(poll);
+  const previous = board.widgets?.find((widget) => widget.name === apWidgetName);
+  const changed = !previous || JSON.stringify(previous.props) !== JSON.stringify(props);
+  if (!dryRun && changed) {
+    await gateway("board.widget.put", {sessionKey, name: apWidgetName,
+      content: {kind: "plugin", pluginKind: "session:report", props},
+      placement: {tabId, size: "md"}});
+    await gateway("board.update", {sessionKey, ops: [{kind: "widget_move", name: apWidgetName, tabId, position: 1}]});
+  }
+  return {pollDate: poll.pollDate, week: poll.week, teams: poll.rankings.length, dryRun, updated: changed};
 }
 
 export async function refresh(sessionKey, dryRun = false) {
@@ -126,13 +158,15 @@ if (process.argv[1] && new URL(import.meta.url).pathname === process.argv[1]) {
   const keyIndex = process.argv.indexOf("--session-key");
   const sessionKey = keyIndex < 0 ? null : process.argv[keyIndex + 1];
   if (!sessionKey || sessionKey.startsWith("--")) {
-    console.error("Usage: node refresh-dashboard.mjs --session-key <session-key> [--dry-run]");
+    console.error("Usage: node refresh-dashboard.mjs --session-key <session-key> [--dry-run] [--ap-poll]");
     process.exitCode = 2;
   } else {
     try {
-      const result = await refresh(sessionKey, process.argv.includes("--dry-run"));
+      const result = process.argv.includes("--ap-poll")
+        ? await refreshApPoll(sessionKey, process.argv.includes("--dry-run"))
+        : await refresh(sessionKey, process.argv.includes("--dry-run"));
       console.log(JSON.stringify(result));
-      if (result.errors.length) process.exitCode = 1;
+      if (result.errors?.length) process.exitCode = 1;
     } catch (error) {
       console.error(error.message);
       process.exitCode = 1;

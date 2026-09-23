@@ -1,7 +1,14 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {compactMatch,getScores} from './index.js';
+import {compactMatch,getApPoll,getScores} from './index.js';
 const event=state=>({id:'1',date:'2026-09-20T17:00Z',status:{type:{state,completed:state==='post',description:'Test'},period:2,displayClock:'4:12'},competitions:[{competitors:[{homeAway:'away',team:{displayName:'Away'},score:'0'},{homeAway:'home',team:{displayName:'Home'},score:'14'}]}]});
 test('maps home/away independent of order, preserves zero, hides unplayed scores',()=>{const game=compactMatch(event('in'));assert.equal(game.home.score,14);assert.equal(game.away.score,0);assert.equal(game.live,true);assert.equal(compactMatch(event('pre')).home.score,null);assert.equal(compactMatch(event('post')).completed,true);});
 test('defaults to both US leagues, no credentials, FBS group and partial failure',async()=>{const calls=[];const result=await getScores({}, {apiKey:'must-not-leave'},async(url,options)=>{calls.push(url);assert.equal(options.headers['X-Auth-Token'],undefined);return url.includes('/nfl/')?{ok:false,status:503}:{ok:true,json:async()=>({events:[event('post')]})};});assert.equal(calls.length,2);assert.match(calls[1],/groups=80/);assert.match(result.leagues.NFL.error,/503/);assert.equal(result.leagues.NCAAF.recent.length,1);});
 test('date/FCS routing, fixtures filtering, malformed response and input validation',async()=>{const result=await getScores({leagues:['NCAAF'],collegeGroup:'fcs',date:'2026-09-19',action:'fixtures'},{},async url=>{assert.match(url,/dates=20260919/);assert.match(url,/groups=81/);return {ok:true,json:async()=>({events:[event('pre'),event('post')]})};});assert.equal(result.leagues.NCAAF.games.length,1);await assert.rejects(getScores({leagues:['PL']}));await assert.rejects(getScores({date:'2026-02-30'}));const bad=await getScores({leagues:['NFL']},{},async()=>({ok:true,json:async()=>({})}));assert.match(bad.leagues.NFL.error,/invalid scoreboard/);});
+test('selects only the complete AP Top 25 and preserves weekly movement',async()=>{
+ const ranks=Array.from({length:25},(_,index)=>({current:index+1,previous:index===3?8:index+1,points:1700-index*20,recordSummary:'3-0',team:{location:`Team ${index+1}`}}));
+ const poll={type:'ap',name:'AP Top 25',headline:'2026 NCAA Football Rankings - AP Poll Week 4',date:'2026-09-20T07:00Z',season:{year:2026},ranks};
+ const result=await getApPoll(async url=>{assert.match(url,/college-football\/rankings$/);return {ok:true,json:async()=>({rankings:[{type:'usa',name:'Coaches Poll',ranks},poll]})};});
+ assert.equal(result.rankings.length,25);assert.equal(result.week,4);assert.equal(result.rankings[3].change,4);
+ await assert.rejects(getApPoll(async()=>({ok:true,json:async()=>({rankings:[{...poll,ranks:ranks.slice(0,24)}]})})),/incomplete/);
+});

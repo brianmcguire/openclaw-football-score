@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {planRefresh} from "./refresh-dashboard.mjs";
+import {apPollProps, planRefresh} from "./refresh-dashboard.mjs";
 
 const game = (id, state = "in") => ({
   id, date: "2026-09-22T00:15:00Z", state, live: state === "in", completed: state === "post",
@@ -49,4 +49,22 @@ test("an unchanged board only moves rewritten summaries back to the top", () => 
   scores.leagues.NFL.fetchedAt = "2026-09-22T01:02:00Z";
   const timed = planRefresh(settled, scores);
   assert.deepEqual(timed.moves, [{kind: "widget_move", name: "us-football-nfl-summary", tabId: "us-football-nfl", position: 0}]);
+});
+
+test("keeps an AP poll card directly below the college summary", () => {
+  const poll = {name: "college-ap-top-25", tabId: "us-football-college", position: 1};
+  const scores = {leagues: {NFL: {games: [], fetchedAt: "2026-09-22T01:00:00Z"},
+    NCAAF: {games: [game("college")], fetchedAt: "2026-09-22T01:00:00Z"}}};
+  const plan = planRefresh({...board, widgets: [...board.widgets, poll]}, scores);
+  assert.deepEqual(plan.moves.filter((op) => op.tabId === "us-football-college").map((op) => op.name),
+    ["us-football-ncaaf-college", "college-ap-top-25", "us-football-ncaaf-summary"]);
+  assert.ok(!plan.removes.some((op) => op.name === poll.name));
+});
+
+test("formats all AP ranks, records, points, and movement", () => {
+  const props = apPollProps({season: 2026, week: 4, pollDate: "2026-09-20T07:00Z", fetchedAt: "2026-09-23T10:00Z",
+    rankings: [{rank: 1, team: "Texas", record: "3-0", points: 1706, change: 0},
+      {rank: 2, team: "Ole Miss", record: "3-0", points: 1488, change: 4}]});
+  assert.match(props.blocks[0].title, /Week 4/);
+  assert.deepEqual(props.blocks[1].rows[1], ["2", "Ole Miss", "3-0", "1488", "↑4"]);
 });

@@ -44,8 +44,30 @@ export async function getScores(params={}, cfg={}, fetcher=fetch) {
   }
   return out;
 }
+export async function getApPoll(fetcher=fetch) {
+  const response=await fetcher("https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings",{headers:{Accept:"application/json"},signal:AbortSignal.timeout(15000)});
+  if(!response.ok) throw new Error(`ESPN rankings HTTP ${response.status}`);
+  const data=await response.json();
+  const poll=data.rankings?.find(r=>r.type==="ap" && r.name==="AP Top 25");
+  if(!poll || !Array.isArray(poll.ranks) || poll.ranks.length!==25) throw new Error("ESPN returned an incomplete AP Top 25 poll");
+  const rankings=poll.ranks.map(rank=>({
+    rank:rank.current,
+    team:rank.team?.location ?? rank.team?.name ?? "Unknown",
+    record:rank.recordSummary ?? "—",
+    points:rank.points,
+    previous:rank.previous ?? null,
+    change:rank.previous > 0 ? rank.previous-rank.current : null,
+  })).sort((a,b)=>a.rank-b.rank);
+  if(rankings.some((rank,index)=>rank.rank!==index+1)) throw new Error("ESPN returned invalid AP poll ranks");
+  return {name:poll.name,headline:poll.headline,pollDate:poll.date,season:poll.season?.year ?? null,
+    week:Number(poll.headline?.match(/Week (\d+)/)?.[1]) || null,
+    fetchedAt:new Date().toISOString(),source:"ESPN AP Top 25 (unofficial feed)",rankings};
+}
 // Retain the old config shape for upgrade compatibility only; no credential is read or sent.
 const configSchema={type:"object",properties:{apiKey:{},leagues:{type:"array",items:{type:"string"}}},additionalProperties:false};
 export default defineToolPlugin({id:"football-score",name:"US Football Scores",description:"NFL and NCAA college football scores and schedules from ESPN; no API key required.",configSchema,
- tools:tool=>[tool({name:"football_score",label:"US Football Scores",description:"Get American football scores: NFL and NCAA college football, NOT soccer. Defaults to both NFL and college FBS for the current scoreboard week. Optional date and FCS/all college coverage. ESPN public feed; may be delayed.",parameters:{type:"object",additionalProperties:false,properties:{action:{type:"string",enum:["matches","fixtures","all"]},leagues:{type:"array",minItems:1,maxItems:2,items:{type:"string",enum:["NFL","NCAAF"]}},date:{type:"string",description:"Optional YYYY-MM-DD; omit for current scoreboard week."},collegeGroup:{type:"string",enum:["fbs","fcs","all"]}}},execute:(params,config)=>getScores(params,config)})]
+ tools:tool=>[
+  tool({name:"football_score",label:"US Football Scores",description:"Get American football scores: NFL and NCAA college football, NOT soccer. Defaults to both NFL and college FBS for the current scoreboard week. Optional date and FCS/all college coverage. ESPN public feed; may be delayed.",parameters:{type:"object",additionalProperties:false,properties:{action:{type:"string",enum:["matches","fixtures","all"]},leagues:{type:"array",minItems:1,maxItems:2,items:{type:"string",enum:["NFL","NCAAF"]}},date:{type:"string",description:"Optional YYYY-MM-DD; omit for current scoreboard week."},collegeGroup:{type:"string",enum:["fbs","fcs","all"]}}},execute:(params,config)=>getScores(params,config)}),
+  tool({name:"football_ap_poll",label:"College Football AP Top 25",description:"Get the latest weekly AP Top 25 college football poll, including rank, team, record, points, and movement. ESPN public feed; may be delayed.",parameters:{type:"object",additionalProperties:false,properties:{}},execute:()=>getApPoll()}),
+ ]
 });
