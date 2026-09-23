@@ -35,3 +35,18 @@ test("upstream error preserves games and prior metrics", () => {
   assert.equal(plan.puts.find((widget) => widget.name === "us-football-ncaaf-summary").props.blocks[1].items[0].value, "1");
   assert.equal(plan.errors.length, 2);
 });
+
+test("an unchanged board only moves rewritten summaries back to the top", () => {
+  const scores = {leagues: {
+    NFL: {games: [game("new")], fetchedAt: "2026-09-22T01:00:00Z"},
+    NCAAF: {games: [], fetchedAt: "2026-09-22T01:00:00Z"},
+  }};
+  const initial = planRefresh(board, scores);
+  const settled = {tabs: board.tabs, widgets: initial.puts.map((widget) => ({...widget, props: widget.props}))};
+  const next = planRefresh(settled, scores);
+  assert.equal(next.puts.length, 0);
+  assert.deepEqual(next.moves, []);
+  scores.leagues.NFL.fetchedAt = "2026-09-22T01:02:00Z";
+  const timed = planRefresh(settled, scores);
+  assert.deepEqual(timed.moves, [{kind: "widget_move", name: "us-football-nfl-summary", tabId: "us-football-nfl", position: 0}]);
+});

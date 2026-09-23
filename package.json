@@ -1,6 +1,6 @@
 {
   "name": "@brianmcguire/openclaw-football-score",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "NFL and NCAA college football scoreboards for OpenClaw. ESPN public feed; no API key needed.",
   "type": "module",
   "main": "index.js",
@@ -30,7 +30,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "0.28.2"
   },
   "openclaw": {
     "extensions": [

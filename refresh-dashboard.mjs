@@ -89,8 +89,11 @@ export function planRefresh(board, scores) {
       .sort((a, b) => a.position - b.position)
       .map((widget) => widget.name);
     const desiredOrder = desired.map((widget) => widget.name);
-    if (JSON.stringify(currentOrder) !== JSON.stringify(desiredOrder)) {
+    const changedGameCards = desired.some((widget) => widget.name !== summaryName && puts.some((put) => put.name === widget.name));
+    if (JSON.stringify(currentOrder) !== JSON.stringify(desiredOrder) || changedGameCards || removes.some((op) => op.name.startsWith(target.prefix))) {
       for (const widget of [...desired].reverse()) moves.push({kind: "widget_move", name: widget.name, tabId: widget.tabId, position: 0});
+    } else if (puts.some((widget) => widget.name === summaryName)) {
+      moves.push({kind: "widget_move", name: summaryName, tabId: target.tabId, position: 0});
     }
   }
   return {puts, removes, moves, errors};
