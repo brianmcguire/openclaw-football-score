@@ -19,11 +19,19 @@ Read-only HTTPS requests to ESPN's public scoreboard endpoints at site.api.espn.
 
 ## Dashboard
 
-The built-in session:report dashboard card displays a timestamped snapshot. It does not refresh automatically. Ask the assistant to refresh scores. A native auto-refresh widget remains separate follow-up work.
+The built-in `session:report` cards can be refreshed by a deterministic OpenClaw command automation. The command fetches the NFL and college FBS scoreboards, updates the existing cards by name, and leaves the last good game cards in place if either feed fails. It does not call an LLM or post to a chat.
+
+On the gateway host, first run a dry run for the dashboard's session key:
+
+```sh
+node refresh-dashboard.mjs --session-key agent:sparx:main --dry-run
+```
+
+Then run it once without `--dry-run` and inspect both tabs. To keep it current, schedule the same command every two minutes with `openclaw cron add --every 2m --command-argv '["/absolute/path/to/node","/absolute/path/to/refresh-dashboard.mjs","--session-key","agent:sparx:main"]' --no-deliver --name 'US football dashboard refresh'`. Replace the paths and session key for your installation. The gateway must have permission to update that session's board. ESPN scores may lag the game. Stop or remove the automation to return to manual snapshots. Keep the source checkout at the scheduled path: `openclaw plugins pack` includes the plugin runtime but not this companion command; `npm pack` includes both.
 
 ## Install and verify
 
-Requires Node 20+ and OpenClaw with plugin-sdk/tool-plugin. No third-party runtime dependencies. Run `node --test index.test.js`, `openclaw plugins validate --root .`, then package with `openclaw plugins pack --root . --out us-football-score.tgz --json`.
+Requires Node 20+ and OpenClaw with plugin-sdk/tool-plugin. No third-party runtime dependencies. For a source checkout, run `npm install`, `node --test index.test.js refresh-dashboard.test.mjs`, `openclaw plugins validate --root .`, `openclaw plugins build --root .`, then package with `openclaw plugins pack --root . --out us-football-score.tgz --json`.
 
 ## License
 
