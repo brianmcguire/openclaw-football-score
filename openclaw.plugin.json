@@ -2,7 +2,7 @@
   "id": "football-score",
   "name": "US Football Scores",
   "description": "NFL and NCAA college football scores and schedules from ESPN; no API key required.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "categories": [
     "other"
   ],
@@ -21,11 +21,5 @@
       }
     },
     "additionalProperties": false
-  },
-  "contracts": {
-    "tools": [
-      "football_score",
-      "football_ap_poll"
-    ]
   }
 }
